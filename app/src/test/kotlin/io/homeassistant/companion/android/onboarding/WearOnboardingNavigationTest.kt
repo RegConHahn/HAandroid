@@ -1,6 +1,8 @@
 package io.homeassistant.companion.android.onboarding
 
+import android.content.Context
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
@@ -11,7 +13,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -26,6 +28,7 @@ import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.compose.NavHost
 import androidx.navigation.testing.TestNavHostController
 import androidx.navigation.toRoute
+import androidx.test.core.app.ApplicationProvider
 import dagger.hilt.android.testing.BindValue
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
@@ -53,8 +56,8 @@ import io.homeassistant.companion.android.onboarding.wearmtls.WearMTLSViewModel
 import io.homeassistant.companion.android.onboarding.wearmtls.navigation.URL_MTLS_DOCUMENTATION
 import io.homeassistant.companion.android.onboarding.wearmtls.navigation.WearMTLSRoute
 import io.homeassistant.companion.android.onboarding.wearmtls.navigation.navigateToWearMTLS
-import io.homeassistant.companion.android.testing.unit.ConsoleLogRule
 import io.homeassistant.companion.android.testing.unit.MainDispatcherJUnit4Rule
+import io.homeassistant.companion.android.testing.unit.TestSharedFlow
 import io.homeassistant.companion.android.testing.unit.stringResource
 import io.homeassistant.companion.android.util.FakePermissionResultRegistry
 import io.homeassistant.companion.android.util.compose.navigateToUri
@@ -71,7 +74,6 @@ import junit.framework.TestCase.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.test.runTest
@@ -87,21 +89,23 @@ import org.robolectric.annotation.Config
 private const val WEAR_NAME = "super_ha_wear"
 private const val VALID_PASSWORD = "1234"
 
+// Robolectric leaves Settings.Secure.ANDROID_ID null, but the integration graph injects it as a
+// non-null @NamedDeviceId, so we seed a value to avoid a null-from-@Provides crash during DI.
+private const val FAKE_ANDROID_ID = "robolectric-android-id"
+
 @RunWith(RobolectricTestRunner::class)
 @Config(application = HiltTestApplication::class)
 @UninstallModules(ServerDiscoveryModule::class)
 @HiltAndroidTest
 internal class WearOnboardingNavigationTest {
-    @get:Rule(order = 0)
-    var consoleLog = ConsoleLogRule()
 
-    @get:Rule(order = 1)
+    @get:Rule(order = 0)
     val hiltRule = HiltAndroidRule(this)
 
-    @get:Rule(order = 2)
+    @get:Rule(order = 1)
     val composeTestRule = createAndroidComposeRule<HiltComponentActivity>()
 
-    @get:Rule(order = 3)
+    @get:Rule(order = 2)
     val mainDispatcherRule = MainDispatcherJUnit4Rule()
 
     @BindValue
@@ -112,7 +116,7 @@ internal class WearOnboardingNavigationTest {
         }
     }
 
-    private val connectionNavigationEventFlow = MutableSharedFlow<ConnectionNavigationEvent>()
+    private val connectionNavigationEventFlow = TestSharedFlow<ConnectionNavigationEvent>()
 
     @BindValue
     @JvmField
@@ -122,6 +126,7 @@ internal class WearOnboardingNavigationTest {
         every { navigationEventsFlow } returns connectionNavigationEventFlow
         every { errorFlow } returns MutableStateFlow(null)
         every { connectivityCheckState } returns MutableStateFlow(ConnectivityCheckState())
+        every { pendingFileChooser } returns MutableStateFlow(null)
     }
 
     private val selectedUri = mockk<Uri>()
@@ -154,6 +159,11 @@ internal class WearOnboardingNavigationTest {
 
     @Before
     fun setup() {
+        Settings.Secure.putString(
+            ApplicationProvider.getApplicationContext<Context>().contentResolver,
+            Settings.Secure.ANDROID_ID,
+            FAKE_ANDROID_ID,
+        )
         mockkStatic(NavController::navigateToUri)
         coEvery { any<NavController>().navigateToUri(any(), any()) } just Runs
     }

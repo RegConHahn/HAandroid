@@ -2,6 +2,7 @@ package io.homeassistant.companion.android.util
 
 import android.net.Uri
 import android.net.http.SslError
+import android.webkit.HttpAuthHandler
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -17,7 +18,6 @@ import androidx.annotation.StringRes
 import io.homeassistant.companion.android.common.R as commonR
 import io.homeassistant.companion.android.common.data.keychain.KeyChainRepository
 import io.homeassistant.companion.android.frontend.error.FrontendConnectionError
-import io.homeassistant.companion.android.testing.unit.ConsoleLogExtension
 import io.homeassistant.companion.android.testing.unit.MainDispatcherJUnit5Extension
 import io.mockk.every
 import io.mockk.mockk
@@ -30,20 +30,25 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertNotNull
 import org.junit.jupiter.api.extension.ExtendWith
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
-@ExtendWith(MainDispatcherJUnit5Extension::class, ConsoleLogExtension::class)
+@ExtendWith(MainDispatcherJUnit5Extension::class)
 class HAWebViewClientTest {
 
     private val keyChainRepository: KeyChainRepository = mockk(relaxed = true)
     private val currentUrlFlow = MutableStateFlow<String?>(null)
     private var capturedError: FrontendConnectionError? = null
+    private val subresourceSslErrorUrls = mutableListOf<String?>()
 
     private lateinit var webViewClient: HAWebViewClient
 
     @BeforeEach
     fun setup() {
         capturedError = null
+        subresourceSslErrorUrls.clear()
         webViewClient = HAWebViewClient(
             keyChainRepository = keyChainRepository,
             currentUrlFlow = currentUrlFlow,
@@ -51,36 +56,56 @@ class HAWebViewClientTest {
             onCrash = null,
             onUrlIntercepted = null,
             onPageFinished = null,
+            onReceivedHttpAuthRequest = null,
+            onSubresourceSslError = { subresourceSslErrorUrls += it },
         )
     }
 
     @Test
-    fun `Given SSL_DATE_INVALID error when onReceivedSslError then emits AuthenticationError`() {
+    fun `Given onPageFinished callback when onPageFinished then invokes callback with final url`() {
+        var finishedUrl: String? = null
+        val client = HAWebViewClient(
+            keyChainRepository = keyChainRepository,
+            currentUrlFlow = currentUrlFlow,
+            onFrontendError = { capturedError = it },
+            onCrash = null,
+            onUrlIntercepted = null,
+            onPageFinished = { finishedUrl = it },
+            onReceivedHttpAuthRequest = null,
+        )
+
+        client.onPageFinished(null, "http://homeassistant.local:80/onboarding")
+
+        assertEquals("http://homeassistant.local:80/onboarding", finishedUrl)
+    }
+
+    @Test
+    fun `Given SSL_DATE_INVALID error when onReceivedSslError then emits SslError`() {
         testSslError(SslError.SSL_DATE_INVALID, commonR.string.webview_error_SSL_DATE_INVALID)
     }
 
     @Test
-    fun `Given SSL_EXPIRED error when onReceivedSslError then emits AuthenticationError`() {
+    fun `Given SSL_EXPIRED error when onReceivedSslError then emits SslError`() {
         testSslError(SslError.SSL_EXPIRED, commonR.string.webview_error_SSL_EXPIRED)
     }
 
     @Test
-    fun `Given SSL_IDMISMATCH error when onReceivedSslError then emits AuthenticationError`() {
+    fun `Given SSL_IDMISMATCH error when onReceivedSslError then emits SslError`() {
         testSslError(SslError.SSL_IDMISMATCH, commonR.string.webview_error_SSL_IDMISMATCH)
     }
 
     @Test
-    fun `Given SSL_INVALID error when onReceivedSslError then emits AuthenticationError`() {
+    fun `Given SSL_INVALID error when onReceivedSslError then emits SslError`() {
         testSslError(SslError.SSL_INVALID, commonR.string.webview_error_SSL_INVALID)
     }
 
     @Test
-    fun `Given SSL_NOTYETVALID error when onReceivedSslError then emits AuthenticationError`() {
+    fun `Given SSL_NOTYETVALID error when onReceivedSslError then emits SslError`() {
         testSslError(SslError.SSL_NOTYETVALID, commonR.string.webview_error_SSL_NOTYETVALID)
     }
 
     @Test
-    fun `Given SSL_UNTRUSTED error when onReceivedSslError then emits AuthenticationError`() {
+    fun `Given SSL_UNTRUSTED error when onReceivedSslError then emits SslError`() {
         testSslError(SslError.SSL_UNTRUSTED, commonR.string.webview_error_SSL_UNTRUSTED)
     }
 
@@ -89,24 +114,44 @@ class HAWebViewClientTest {
         webViewClient.onReceivedSslError(null, null, null)
 
         assertNotNull(capturedError)
-        assertTrue(capturedError is FrontendConnectionError.AuthenticationError)
+        assertTrue(capturedError is FrontendConnectionError.SslError)
         assertEquals(commonR.string.error_ssl, capturedError?.message)
     }
 
-    private fun testSslError(primaryError: Int, @StringRes expectedMessageRes: Int) {
-        val details = "SSL Error: $primaryError"
-        val sslError = mockk<SslError> {
-            every { this@mockk.primaryError } returns primaryError
-            every { this@mockk.toString() } returns details
-        }
+    @Test
+    fun `Given SSL error for a subresource when onReceivedSslError then reports its url instead of failing`() {
+        currentUrlFlow.value = "http://homeassistant.local:8123/auth/authorize"
+        val subresourceUrl = "https://analytics.example.com/beacon.min.js"
+        val sslError = mockSslError(SslError.SSL_UNTRUSTED, url = subresourceUrl)
 
         webViewClient.onReceivedSslError(null, null, sslError)
 
-        assertFrontendError<FrontendConnectionError.AuthenticationError>(expectedMessageRes, details, SslError::class)
+        assertEquals(null, capturedError)
+        assertEquals(listOf(subresourceUrl), subresourceSslErrorUrls)
+    }
+
+    private fun testSslError(primaryError: Int, @StringRes expectedMessageRes: Int) {
+        currentUrlFlow.value = "http://homeassistant.local:8123/auth/authorize"
+        val sslError = mockSslError(primaryError, url = "http://homeassistant.local:8123/auth/authorize")
+
+        webViewClient.onReceivedSslError(null, null, sslError)
+
+        assertFrontendError<FrontendConnectionError.SslError>(
+            expectedMessageRes,
+            "SSL Error: $primaryError",
+            SslError::class,
+        )
+        assertTrue(subresourceSslErrorUrls.isEmpty())
+    }
+
+    private fun mockSslError(primaryError: Int, url: String): SslError = mockk {
+        every { this@mockk.primaryError } returns primaryError
+        every { this@mockk.url } returns url
+        every { this@mockk.toString() } returns "SSL Error: $primaryError"
     }
 
     @Test
-    fun `Given expired TLS cert when onReceivedHttpError then emits AuthenticationError`() {
+    fun `Given expired TLS cert when onReceivedHttpError then emits TlsCertExpired`() {
         val webView = mockWebView()
         val currentUrl = "http://homeassistant.local:8123/auth/authorize"
         currentUrlFlow.value = currentUrl
@@ -117,7 +162,7 @@ class HAWebViewClientTest {
 
         webViewClient.onReceivedHttpError(webView, request, null)
 
-        assertFrontendError<FrontendConnectionError.AuthenticationError>(
+        assertFrontendError<FrontendConnectionError.TlsCertExpired>(
             commonR.string.tls_cert_expired_message,
             errorDetails(null, "No description"),
             WebResourceResponse::class,
@@ -125,7 +170,7 @@ class HAWebViewClientTest {
     }
 
     @Test
-    fun `Given TLS cert not found when onReceivedHttpError then emits AuthenticationError`() {
+    fun `Given TLS cert not found when onReceivedHttpError then emits TlsCertNotFound`() {
         val webView = mockWebView()
         val currentUrl = "http://homeassistant.local:8123/auth/authorize"
         currentUrlFlow.value = currentUrl
@@ -140,7 +185,7 @@ class HAWebViewClientTest {
 
         webViewClient.onReceivedHttpError(webView, request, response)
 
-        assertFrontendError<FrontendConnectionError.AuthenticationError>(
+        assertFrontendError<FrontendConnectionError.TlsCertNotFound>(
             commonR.string.tls_cert_not_found_message,
             errorDetails(400, "Bad Request"),
             WebResourceResponse::class,
@@ -148,7 +193,7 @@ class HAWebViewClientTest {
     }
 
     @Test
-    fun `Given generic HTTP error when onReceivedHttpError then emits UnknownError`() {
+    fun `Given generic HTTP error when onReceivedHttpError then emits Unknown`() {
         val webView = mockWebView()
         val currentUrl = "http://homeassistant.local:8123/auth/authorize"
         currentUrlFlow.value = currentUrl
@@ -162,7 +207,7 @@ class HAWebViewClientTest {
 
         webViewClient.onReceivedHttpError(webView, request, response)
 
-        assertFrontendError<FrontendConnectionError.UnknownError>(
+        assertFrontendError<FrontendConnectionError.Unknown>(
             commonR.string.connection_error_unknown_error,
             errorDetails(418, "I'm a teapot"),
             WebResourceResponse::class,
@@ -170,7 +215,7 @@ class HAWebViewClientTest {
     }
 
     @Test
-    fun `Given HTTP error without reason when onReceivedHttpError then emits UnknownError with no description`() {
+    fun `Given HTTP error without reason when onReceivedHttpError then emits Unknown with no description`() {
         val webView = mockWebView()
         val currentUrl = "http://homeassistant.local:8123/auth/authorize"
         currentUrlFlow.value = currentUrl
@@ -184,7 +229,7 @@ class HAWebViewClientTest {
 
         webViewClient.onReceivedHttpError(webView, request, response)
 
-        assertFrontendError<FrontendConnectionError.UnknownError>(
+        assertFrontendError<FrontendConnectionError.Unknown>(
             commonR.string.connection_error_unknown_error,
             errorDetails(500, "No description"),
             WebResourceResponse::class,
@@ -207,74 +252,74 @@ class HAWebViewClientTest {
     }
 
     @Test
-    fun `Given ERROR_FAILED_SSL_HANDSHAKE when onReceivedError then emits AuthenticationError`() {
+    fun `Given ERROR_FAILED_SSL_HANDSHAKE when onReceivedError then emits SslError`() {
         testReceivedError(
             errorCode = ERROR_FAILED_SSL_HANDSHAKE,
             expectedMessageRes = commonR.string.webview_error_FAILED_SSL_HANDSHAKE,
-            expectedErrorType = FrontendConnectionError.AuthenticationError::class,
+            expectedErrorType = FrontendConnectionError.SslError::class,
         )
     }
 
     @Test
-    fun `Given ERROR_AUTHENTICATION when onReceivedError then emits AuthenticationError`() {
+    fun `Given ERROR_AUTHENTICATION when onReceivedError then emits AuthRevoked`() {
         testReceivedError(
             errorCode = ERROR_AUTHENTICATION,
             expectedMessageRes = commonR.string.webview_error_AUTHENTICATION,
-            expectedErrorType = FrontendConnectionError.AuthenticationError::class,
+            expectedErrorType = FrontendConnectionError.AuthRevoked::class,
         )
     }
 
     @Test
-    fun `Given ERROR_PROXY_AUTHENTICATION when onReceivedError then emits AuthenticationError`() {
+    fun `Given ERROR_PROXY_AUTHENTICATION when onReceivedError then emits AuthRevoked`() {
         testReceivedError(
             errorCode = ERROR_PROXY_AUTHENTICATION,
             expectedMessageRes = commonR.string.webview_error_PROXY_AUTHENTICATION,
-            expectedErrorType = FrontendConnectionError.AuthenticationError::class,
+            expectedErrorType = FrontendConnectionError.AuthRevoked::class,
         )
     }
 
     @Test
-    fun `Given ERROR_UNSUPPORTED_AUTH_SCHEME when onReceivedError then emits AuthenticationError`() {
+    fun `Given ERROR_UNSUPPORTED_AUTH_SCHEME when onReceivedError then emits AuthRevoked`() {
         testReceivedError(
             errorCode = ERROR_UNSUPPORTED_AUTH_SCHEME,
             expectedMessageRes = commonR.string.webview_error_AUTH_SCHEME,
-            expectedErrorType = FrontendConnectionError.AuthenticationError::class,
+            expectedErrorType = FrontendConnectionError.AuthRevoked::class,
         )
     }
 
     @Test
-    fun `Given ERROR_HOST_LOOKUP when onReceivedError then emits UnreachableError`() {
+    fun `Given ERROR_HOST_LOOKUP when onReceivedError then emits Unreachable`() {
         testReceivedError(
             errorCode = ERROR_HOST_LOOKUP,
             expectedMessageRes = commonR.string.webview_error_HOST_LOOKUP,
-            expectedErrorType = FrontendConnectionError.UnreachableError::class,
+            expectedErrorType = FrontendConnectionError.Unreachable::class,
         )
     }
 
     @Test
-    fun `Given ERROR_TIMEOUT when onReceivedError then emits UnreachableError`() {
+    fun `Given ERROR_TIMEOUT when onReceivedError then emits Timeout`() {
         testReceivedError(
             errorCode = ERROR_TIMEOUT,
             expectedMessageRes = commonR.string.webview_error_TIMEOUT,
-            expectedErrorType = FrontendConnectionError.UnreachableError::class,
+            expectedErrorType = FrontendConnectionError.Timeout::class,
         )
     }
 
     @Test
-    fun `Given ERROR_CONNECT when onReceivedError then emits UnreachableError`() {
+    fun `Given ERROR_CONNECT when onReceivedError then emits Unreachable`() {
         testReceivedError(
             errorCode = ERROR_CONNECT,
             expectedMessageRes = commonR.string.webview_error_CONNECT,
-            expectedErrorType = FrontendConnectionError.UnreachableError::class,
+            expectedErrorType = FrontendConnectionError.Unreachable::class,
         )
     }
 
     @Test
-    fun `Given unknown error code when onReceivedError then emits UnknownError`() {
+    fun `Given unknown error code when onReceivedError then emits Unknown`() {
         testReceivedError(
             errorCode = -999,
             expectedMessageRes = commonR.string.connection_error_unknown_error,
-            expectedErrorType = FrontendConnectionError.UnknownError::class,
+            expectedErrorType = FrontendConnectionError.Unknown::class,
         )
     }
 
@@ -291,7 +336,7 @@ class HAWebViewClientTest {
 
         webViewClient.onReceivedError(webView, request, error)
 
-        assertFrontendError<FrontendConnectionError.UnknownError>(
+        assertFrontendError<FrontendConnectionError.Unknown>(
             commonR.string.connection_error_unknown_error,
             errorDetails(-1, "No description"),
             WebResourceError::class,

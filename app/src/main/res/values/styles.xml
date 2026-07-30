@@ -29,7 +29,7 @@
         <item name="android:windowLightStatusBar">@bool/isLightMode</item>
     </style>
 
-    <style name="Theme.HomeAssistant.Assist" parent="Theme.HomeAssistant" >
+    <style name="Theme.HomeAssistant.TranslucentOverlay" parent="Theme.HomeAssistant" >
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowContentOverlay">@null</item>
@@ -105,16 +105,6 @@
         <item name="colorWidgetBackground">@color/colorWidgetButtonBackground</item>
         <item name="colorWidgetOnBackground">@color/colorWidgetButtonLabel</item>
         <item name="dimenWidgetCornerRadius">@dimen/widget_corner_radius</item>
-    </style>
-
-    <style name="Authentication_Dialog" parent="Theme.MaterialComponents.Light.Dialog">
-        <item name="android:textColor">@color/colorDialogTitle</item>
-        <item name="buttonBarPositiveButtonStyle">@style/Alert.Button.Positive</item>
-        <item name="buttonBarNegativeButtonStyle">@style/Alert.Button.Negative</item>
-        <item name="buttonBarNeutralButtonStyle">@style/Alert.Button.Neutral</item>
-        <item name="windowMinWidthMajor">300dp</item>
-        <item name="windowMinWidthMinor">0dp</item>
-        <item name="android:textColorPrimary">@color/colorDialogMessage</item>
     </style>
 
     <style name="Alert.Button.Neutral" parent="Widget.MaterialComponents.Button.TextButton">

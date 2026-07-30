@@ -1,8 +1,10 @@
 package io.homeassistant.companion.android.frontend.handler
 
+import android.net.Uri
 import io.homeassistant.companion.android.frontend.download.DownloadResult
 import io.homeassistant.companion.android.frontend.error.FrontendConnectionError
 import io.homeassistant.companion.android.frontend.externalbus.incoming.HapticType
+import io.homeassistant.companion.android.frontend.navigation.FrontendEvent
 
 /**
  * Events emitted by [FrontendMessageHandler].
@@ -21,6 +23,11 @@ sealed interface FrontendHandlerEvent {
      * Frontend reported disconnection from Home Assistant.
      */
     data object Disconnected : FrontendHandlerEvent
+
+    /**
+     * Frontend reported it finished rendering and is ready to be displayed.
+     */
+    data object Loaded : FrontendHandlerEvent
 
     /**
      * Frontend requested app configuration and the response was sent.
@@ -70,4 +77,115 @@ sealed interface FrontendHandlerEvent {
      * The ViewModel should process the [result] to emit appropriate UI feedback.
      */
     data class DownloadCompleted(val result: DownloadResult) : FrontendHandlerEvent
+
+    /**
+     * Frontend requested the NFC tag-write flow to be launched.
+     *
+     * @param messageId The correlation id from the incoming `tag/write` message; used to respond back
+     *   to the frontend once the flow completes.
+     * @param tagId Optional pre-filled tag identifier. When null, the user is prompted to enter one.
+     */
+    data class WriteNfcTag(val messageId: Int, val tagId: String?) : FrontendHandlerEvent
+
+    /**
+     * Frontend requested the app to start scanning for Improv (Wi-Fi onboarding) BLE devices.
+     *
+     * The ViewModel starts the scan and emits
+     * [io.homeassistant.companion.android.frontend.externalbus.outgoing.ImprovDiscoveredDeviceMessage]
+     * for each device the scanner reports.
+     */
+    data object StartImprovScan : FrontendHandlerEvent
+
+    /**
+     * User picked an Improv device in the frontend's list. The ViewModel should open the
+     * Wi-Fi-credentials dialog seeded with [deviceName], drive the BLE provisioning flow, and
+     * emit [io.homeassistant.companion.android.frontend.externalbus.outgoing.ImprovDeviceSetupDoneMessage]
+     * once provisioning succeeds.
+     *
+     * @param deviceName Advertised name of the BLE device the user selected.
+     */
+    data class ConfigureImprovDevice(val deviceName: String) : FrontendHandlerEvent
+
+    /**
+     * Frontend requested the Matter device commissioning flow to be launched.
+     *
+     * The ViewModel drives the Google Play Services Matter intent and, once it resolves, replies
+     * to the frontend with a
+     * [io.homeassistant.companion.android.frontend.externalbus.outgoing.ResultMessage] correlated
+     * by [messageId].
+     */
+    data object StartMatterCommissioning : FrontendHandlerEvent
+
+    /**
+     * Frontend requested the app to share its locally-stored Thread credentials with the server.
+     *
+     * The ViewModel reads the preferred Thread dataset via Google Play Services, forwards it to
+     * the server.
+     */
+    data object ImportThreadCredentials : FrontendHandlerEvent
+
+    /**
+     * Frontend requested the app to open the barcode scanner overlay.
+     *
+     * Carries the original message [messageId] (required — the frontend correlates the eventual
+     * scan result or cancellation by this id) and the user-facing strings the overlay should display.
+     */
+    data class ShowBarcodeScanner(
+        val messageId: Int,
+        val title: String,
+        val description: String,
+        val alternativeOptionLabel: String?,
+    ) : FrontendHandlerEvent
+
+    /**
+     * Frontend requested the app to display a notification dialog on top of the active scanner.
+     *
+     * No id is carried — the frontend treats this as fire-and-forget. If no scanner is active
+     * when the event is observed, the consumer should silently drop it.
+     */
+    data class NotifyBarcodeScanner(val message: String) : FrontendHandlerEvent
+
+    /** Frontend asked the app to close the active scanner overlay (fire-and-forget). */
+    data object CloseBarcodeScanner : FrontendHandlerEvent
+
+    sealed interface ExoPlayerAction : FrontendHandlerEvent {
+
+        /**
+         * Start playing an HLS stream.
+         *
+         * @param messageId The external bus message ID for the result callback
+         * @param url The HLS stream URL
+         * @param muted Whether playback should start muted
+         */
+        data class PlayHls(val messageId: Int?, val url: Uri, val muted: Boolean) : ExoPlayerAction
+
+        /** Stop playback and release the player. */
+        data object Stop : ExoPlayerAction
+
+        /**
+         * Resize and reposition the player overlay.
+         *
+         * Values come from the frontend's `Element.getBoundingClientRect()` and are already
+         * scaled to screen pixels (expressed as dp for Compose).
+         *
+         * @param left Left offset in dp
+         * @param top Top offset in dp
+         * @param right Right edge in dp
+         * @param bottom Bottom edge in dp, or 0 if the frontend does not impose a height constraint
+         */
+        data class Resize(val left: Double, val top: Double, val right: Double, val bottom: Double) : ExoPlayerAction
+    }
+
+    /**
+     * Frontend requested available EntityAddTo actions and the response was sent.
+     */
+    data object EntityAddToActionsSent : FrontendHandlerEvent
+
+    /**
+     * Frontend requested execution of an EntityAddTo action.
+     *
+     * The ViewModel should forward the [event] to the navigation layer.
+     * When null, the action is unimplemented and should be ignored.
+     */
+    data class EntityAddToExecuted(val event: FrontendEvent?) : FrontendHandlerEvent
 }

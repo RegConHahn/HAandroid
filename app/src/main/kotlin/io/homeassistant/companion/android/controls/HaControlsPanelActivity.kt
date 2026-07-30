@@ -26,11 +26,12 @@ import dagger.hilt.android.AndroidEntryPoint
 import io.homeassistant.companion.android.common.R as commonR
 import io.homeassistant.companion.android.common.data.prefs.PrefsRepository
 import io.homeassistant.companion.android.common.data.servers.ServerManager
+import io.homeassistant.companion.android.common.data.servers.ServerManager.Companion.SERVER_ID_ACTIVE
+import io.homeassistant.companion.android.frontend.navigation.FrontendTarget
+import io.homeassistant.companion.android.launch.LaunchActivity
 import io.homeassistant.companion.android.util.compose.HomeAssistantAppTheme
-import io.homeassistant.companion.android.webview.WebViewActivity
 import javax.inject.Inject
 import kotlinx.coroutines.launch
-import timber.log.Timber
 
 @AndroidEntryPoint
 class HaControlsPanelActivity : AppCompatActivity() {
@@ -66,16 +67,15 @@ class HaControlsPanelActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val serverId = prefsRepository.getControlsPanelServer() ?: serverManager.getServer()?.id
             val path = prefsRepository.getControlsPanelPath()
-            Timber.d("Launching WebView…")
-            startActivity(
-                WebViewActivity.newInstance(
-                    context = this@HaControlsPanelActivity,
-                    path = path,
-                    serverId = serverId,
-                ).apply {
-                    putExtra(WebViewActivity.EXTRA_SHOW_WHEN_LOCKED, true)
-                },
+            val intent = LaunchActivity.newInstance(
+                context = this@HaControlsPanelActivity,
+                deepLink = LaunchActivity.DeepLink.NavigateTo(
+                    target = FrontendTarget.fromRawPath(path),
+                    serverId = serverId ?: SERVER_ID_ACTIVE,
+                ),
+                showWhenLocked = true,
             )
+            startActivity(intent)
             overridePendingTransition(0, 0) // Disable activity start/stop animation
 
             // The device controls panel can flicker if this activity finishes to quickly, so handle

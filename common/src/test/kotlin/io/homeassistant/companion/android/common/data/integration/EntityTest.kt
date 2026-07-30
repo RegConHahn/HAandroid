@@ -1,13 +1,10 @@
 package io.homeassistant.companion.android.common.data.integration
 
-import android.content.Context
 import com.mikepenz.iconics.typeface.library.community.material.CommunityMaterial.Icon
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.CompressedEntityRemoved
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.CompressedEntityState
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.CompressedStateDiff
 import io.homeassistant.companion.android.common.util.kotlinJsonMapper
-import io.homeassistant.companion.android.testing.unit.ConsoleLogExtension
-import io.mockk.mockk
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import kotlinx.serialization.json.JsonPrimitive
@@ -17,12 +14,10 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.extension.ExtendWith
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 
-@ExtendWith(ConsoleLogExtension::class)
 class EntityTest {
 
     private val baseDateTime = LocalDateTime.of(2024, 1, 1, 12, 0, 0)
@@ -59,6 +54,40 @@ class EntityTest {
         ) {
             val entity = createEntity(entityId = entityId)
             assertEquals(expectedDomain, entity.domain)
+        }
+    }
+
+    @Nested
+    inner class FriendlyNameProperty {
+        @Test
+        fun `Given friendly_name attribute when accessing friendlyName then returns it`() {
+            val entity = createEntity(attributes = mapOf("friendly_name" to "Living Room Light"))
+            assertEquals("Living Room Light", entity.friendlyName)
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = ["", "   "])
+        fun `Given blank friendly_name attribute when accessing friendlyName then returns entityId`(name: String) {
+            val entity = createEntity(attributes = mapOf("friendly_name" to name))
+            assertEquals("light.living_room", entity.friendlyName)
+        }
+
+        @Test
+        fun `Given no friendly_name attribute when accessing friendlyName then returns entityId`() {
+            val entity = createEntity(attributes = emptyMap())
+            assertEquals("light.living_room", entity.friendlyName)
+        }
+
+        @Test
+        fun `Given null friendly_name attribute when accessing friendlyName then returns entityId`() {
+            val entity = createEntity(attributes = mapOf("friendly_name" to null))
+            assertEquals("light.living_room", entity.friendlyName)
+        }
+
+        @Test
+        fun `Given non-string friendly_name attribute when accessing friendlyName then returns its string value`() {
+            val entity = createEntity(attributes = mapOf("friendly_name" to 42))
+            assertEquals("42", entity.friendlyName)
         }
     }
 
@@ -118,38 +147,35 @@ class EntityTest {
     inner class GetIcon {
         @Test
         fun `Given blank state and non-string state attribute when getting icon then does not throw`() {
-            val context = mockk<Context>()
             val entity = createEntity(
                 entityId = "sensor.test",
                 state = "",
                 attributes = mapOf("state" to 42),
             )
-            assertDoesNotThrow { entity.getIcon(context) }
+            assertDoesNotThrow { entity.getIcon() }
         }
 
         @ParameterizedTest
         @ValueSource(strings = ["mdi:", "mdi:abcdefgh"])
         fun `Given invalid mdi icon attribute when getting icon then returns fallback`(iconAttr: String) {
-            val context = mockk<Context>(relaxed = true)
             val entity = createEntity(
                 entityId = "sensor.test",
                 state = "42",
                 attributes = mapOf("icon" to iconAttr),
             )
-            val icon = entity.getIcon(context)
+            val icon = entity.getIcon()
             assertEquals(Icon.cmd_bookmark, icon)
         }
 
         @ParameterizedTest
         @ValueSource(strings = ["mdicustom:abcdefgh", "hue:bulb-filament"])
         fun `Given custom non-mdi icon attribute when getting icon then returns domain default`(iconAttr: String) {
-            val context = mockk<Context>()
             val entity = createEntity(
                 entityId = "sensor.test",
                 state = "42",
                 attributes = mapOf("icon" to iconAttr),
             )
-            val icon = entity.getIcon(context)
+            val icon = entity.getIcon()
             assertEquals(Icon.cmd_eye, icon)
         }
     }

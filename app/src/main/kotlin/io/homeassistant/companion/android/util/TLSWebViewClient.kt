@@ -2,6 +2,7 @@ package io.homeassistant.companion.android.util
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
 import android.security.KeyChain
@@ -129,10 +130,10 @@ open class TLSWebViewClient(private var keyChainRepository: KeyChainRepository) 
 
     override fun onReceivedClientCertRequest(view: WebView, request: ClientCertRequest) {
         Timber.d("onReceivedClientCertRequest invoked looking for cert in local storage or ask the user for it")
-        // Let the WebViewActivity know the endpoint requires TLS Client Auth
+        // Let the WebViewClient know the endpoint requires TLS Client Auth
         isTLSClientAuthNeeded = true
 
-        // Aim to obtain the private key for the whole lifecycle of the WebViewActivity
+        // Aim to obtain the private key for the whole lifecycle
         val activity = getActivity(view.context)
         if (activity != null) {
             // If the key is available, process the request
@@ -160,25 +161,33 @@ open class TLSWebViewClient(private var keyChainRepository: KeyChainRepository) 
 
     private fun selectClientCert(activity: Activity, request: ClientCertRequest) {
         // prompt the user for a key
-        KeyChain.choosePrivateKeyAlias(
-            activity,
-            SafeKeyChainAliasCallback(keyChainRepository, activity.applicationContext) { key, chain ->
-                if (key == null || chain == null) {
-                    hasUserDeniedAccess = true
-                    request.ignore()
-                } else {
-                    checkChainValidity()
-                    this.key = key
-                    this.chain = chain
-                    request.proceed(key, chain)
-                }
-            },
-            request.keyTypes,
-            request.principals,
-            request.host,
-            request.port,
-            null,
-        )
+        try {
+            KeyChain.choosePrivateKeyAlias(
+                activity,
+                SafeKeyChainAliasCallback(keyChainRepository, activity.applicationContext) { key, chain ->
+                    if (key == null || chain == null) {
+                        hasUserDeniedAccess = true
+                        request.ignore()
+                    } else {
+                        checkChainValidity()
+                        this.key = key
+                        this.chain = chain
+                        request.proceed(key, chain)
+                    }
+                },
+                request.keyTypes,
+                request.principals,
+                request.host,
+                request.port,
+                null,
+            )
+        } catch (e: ActivityNotFoundException) {
+            // some cut-down ROMs don't have a client TLS certificate chooser activity (com.android.keychain.CHOOSER)
+            // cancel the request so the WebView proceeds without presenting a cert
+            Timber.w(e, "Client certificate chooser activity not available, proceeding without cert")
+            hasUserDeniedAccess = true
+            request.ignore()
+        }
     }
 
     private fun checkChainValidity() {

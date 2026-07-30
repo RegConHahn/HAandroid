@@ -28,9 +28,11 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
 import dagger.hilt.android.AndroidEntryPoint
 import io.homeassistant.companion.android.R
-import io.homeassistant.companion.android.authenticator.Authenticator
+import io.homeassistant.companion.android.authenticator.Authenticator.Companion.AuthenticationResult
 import io.homeassistant.companion.android.common.R as commonR
+import io.homeassistant.companion.android.frontend.navigation.FrontendTarget
 import io.homeassistant.companion.android.launch.LaunchActivity
+import io.homeassistant.companion.android.launch.intentLaunchWithNavigateTo
 import io.homeassistant.companion.android.settings.ConnectionSecurityLevelFragment
 import io.homeassistant.companion.android.settings.SettingsActivity
 import io.homeassistant.companion.android.settings.ssid.SsidFragment
@@ -38,14 +40,13 @@ import io.homeassistant.companion.android.settings.url.ExternalUrlFragment
 import io.homeassistant.companion.android.settings.websocket.WebsocketSettingFragment
 import io.homeassistant.companion.android.util.QuestUtil
 import io.homeassistant.companion.android.util.applyBottomSafeDrawingInsets
-import io.homeassistant.companion.android.webview.WebViewActivity
 import java.net.URLEncoder
 import javax.inject.Inject
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 
-private const val BASE_INVITE_URL = "https://my.home-assistant.io/invite/#"
+private const val BASE_INVITE_URL = "https://my.home-assistant.io/invite/#url="
 
 @AndroidEntryPoint
 class ServerSettingsFragment :
@@ -92,9 +93,9 @@ class ServerSettingsFragment :
         lifecycleScope.launch {
             if (presenter.hasMultipleServers()) {
                 val activateClickListener = OnPreferenceClickListener {
-                    val intent = WebViewActivity.newInstance(requireContext(), null, serverId).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    }
+                    val intent = requireContext().intentLaunchWithNavigateTo(FrontendTarget.Default, serverId)
+                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+
                     requireContext().startActivity(intent)
                     return@OnPreferenceClickListener true
                 }
@@ -352,8 +353,8 @@ class ServerSettingsFragment :
         }
     }
 
-    private fun setLockAuthenticationResult(result: Int): Boolean {
-        val success = result == Authenticator.SUCCESS
+    private fun setLockAuthenticationResult(result: AuthenticationResult): Boolean {
+        val success = result == AuthenticationResult.SUCCESS
         val switchLock = findPreference<SwitchPreference>("app_lock")
         switchLock?.isChecked = success
 
@@ -362,7 +363,7 @@ class ServerSettingsFragment :
 
         findPreference<SwitchPreference>("app_lock_home_bypass")?.isVisible = success && presenter.hasWifi()
         findPreference<EditTextPreference>("session_timeout")?.isVisible = success
-        return (result == Authenticator.SUCCESS || result == Authenticator.CANCELED)
+        return (result == AuthenticationResult.SUCCESS || result == AuthenticationResult.CANCELED)
     }
 
     override fun onRemovedServer(success: Boolean, hasAnyRemaining: Boolean) {

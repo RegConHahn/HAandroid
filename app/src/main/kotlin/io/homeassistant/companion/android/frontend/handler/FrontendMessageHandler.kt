@@ -1,25 +1,44 @@
 package io.homeassistant.companion.android.frontend.handler
 
 import android.content.pm.PackageManager
+import androidx.core.net.toUri
 import dagger.hilt.android.scopes.ViewModelScoped
 import io.homeassistant.companion.android.common.util.AppVersionProvider
 import io.homeassistant.companion.android.di.qualifiers.IsAutomotive
-import io.homeassistant.companion.android.frontend.EvaluateScriptUsage
+import io.homeassistant.companion.android.frontend.EvaluateJavascriptUsage
 import io.homeassistant.companion.android.frontend.WebViewAction
+import io.homeassistant.companion.android.frontend.addto.ExternalEntityAddToAction
+import io.homeassistant.companion.android.frontend.addto.FrontendEntityAddToManager
 import io.homeassistant.companion.android.frontend.download.FrontendDownloadManager
 import io.homeassistant.companion.android.frontend.externalbus.FrontendExternalBusRepository
+import io.homeassistant.companion.android.frontend.externalbus.incoming.BarcodeCloseMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.BarcodeNotifyMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.BarcodeScanMessage
 import io.homeassistant.companion.android.frontend.externalbus.incoming.ConfigGetMessage
 import io.homeassistant.companion.android.frontend.externalbus.incoming.ConnectionStatusMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.EntityAddToGetActionsMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.EntityAddToMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.ExoPlayerPlayHlsMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.ExoPlayerResizeMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.ExoPlayerStopMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.FrontendLoaded
 import io.homeassistant.companion.android.frontend.externalbus.incoming.HandleBlobMessage
 import io.homeassistant.companion.android.frontend.externalbus.incoming.HapticMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.ImprovConfigureDeviceMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.ImprovScanMessage
 import io.homeassistant.companion.android.frontend.externalbus.incoming.IncomingExternalBusMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.MatterCommissionMessage
 import io.homeassistant.companion.android.frontend.externalbus.incoming.OpenAssistMessage
 import io.homeassistant.companion.android.frontend.externalbus.incoming.OpenAssistSettingsMessage
 import io.homeassistant.companion.android.frontend.externalbus.incoming.OpenSettingsMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.TagWriteMessage
 import io.homeassistant.companion.android.frontend.externalbus.incoming.ThemeUpdateMessage
+import io.homeassistant.companion.android.frontend.externalbus.incoming.ThreadImportCredentialsMessage
 import io.homeassistant.companion.android.frontend.externalbus.incoming.UnknownIncomingMessage
-import io.homeassistant.companion.android.frontend.externalbus.outgoing.ConfigResult
-import io.homeassistant.companion.android.frontend.externalbus.outgoing.ResultMessage
+import io.homeassistant.companion.android.frontend.externalbus.outgoing.ConfigResultMessage
+import io.homeassistant.companion.android.frontend.externalbus.outgoing.EntityAddToActionsResultMessage
+import io.homeassistant.companion.android.frontend.externalbus.outgoing.SuccessResultMessage
+import io.homeassistant.companion.android.frontend.improv.BluetoothCapabilities
 import io.homeassistant.companion.android.frontend.js.FrontendJsHandler
 import io.homeassistant.companion.android.frontend.session.AuthPayload
 import io.homeassistant.companion.android.frontend.session.ExternalAuthResult
@@ -59,6 +78,8 @@ class FrontendMessageHandler @Inject constructor(
     private val appVersionProvider: AppVersionProvider,
     private val sessionManager: ServerSessionManager,
     private val downloadManager: FrontendDownloadManager,
+    private val bluetoothCapabilities: BluetoothCapabilities,
+    private val entityAddToManager: FrontendEntityAddToManager,
     @param:IsAutomotive private val isAutomotive: Boolean,
 ) : FrontendJsHandler,
     FrontendBusObserver {
@@ -70,12 +91,12 @@ class FrontendMessageHandler @Inject constructor(
      *
      * The bridge has already parsed and validated the callback name before calling this.
      *
-     * Opts into [EvaluateScriptUsage] because the auth protocol runs on its own channel,
+     * Opts into [EvaluateJavascriptUsage] because the auth protocol runs on its own channel,
      * not the external bus: the frontend installs a callback on `window` (e.g.
      * `window.externalAuthSetToken`) and waits for the native app to invoke it directly
      * with the auth response.
      */
-    @OptIn(EvaluateScriptUsage::class)
+    @OptIn(EvaluateJavascriptUsage::class)
     override suspend fun getExternalAuth(authPayload: AuthPayload, serverId: Int) {
         Timber.d("getExternalAuth called")
         when (val result = sessionManager.getExternalAuth(serverId, authPayload)) {
@@ -93,11 +114,11 @@ class FrontendMessageHandler @Inject constructor(
     /**
      * Called when the frontend requests to revoke the current authentication.
      *
-     * Opts into [EvaluateScriptUsage] for the same reason as [getExternalAuth]: the frontend
+     * Opts into [EvaluateJavascriptUsage] for the same reason as [getExternalAuth]: the frontend
      * installs a `window.externalAuthRevokeToken` callback and waits for the native app to
      * invoke it directly.
      */
-    @OptIn(EvaluateScriptUsage::class)
+    @OptIn(EvaluateJavascriptUsage::class)
     override suspend fun revokeExternalAuth(authPayload: AuthPayload, serverId: Int) {
         Timber.d("revokeExternalAuth called")
         when (val result = sessionManager.revokeExternalAuth(serverId, authPayload)) {
@@ -142,6 +163,10 @@ class FrontendMessageHandler @Inject constructor(
                     FrontendHandlerEvent.Disconnected
                 }
             }
+            is FrontendLoaded -> {
+                Timber.d("Frontend is loaded and ready to be displayed")
+                FrontendHandlerEvent.Loaded
+            }
 
             is ConfigGetMessage -> {
                 Timber.d("Config/get request received with id: ${message.id}")
@@ -174,10 +199,103 @@ class FrontendMessageHandler @Inject constructor(
 
             is HapticMessage -> FrontendHandlerEvent.PerformHaptic(message.payload)
 
+            is TagWriteMessage -> {
+                Timber.d("Tag write request received with id: ${message.id}")
+                FrontendHandlerEvent.WriteNfcTag(
+                    messageId = message.id ?: -1,
+                    tagId = message.payload.tag,
+                )
+            }
+
+            is ExoPlayerPlayHlsMessage -> {
+                val url = message.payload.url
+                if (url == null) {
+                    Timber.w("exoplayer/play_hls received without URL")
+                    FrontendHandlerEvent.UnknownMessage
+                } else {
+                    Timber.d("exoplayer/play_hls url=${sensitive(url)} muted=${message.payload.muted}")
+                    externalBusRepository.send(SuccessResultMessage(id = message.id))
+                    FrontendHandlerEvent.ExoPlayerAction.PlayHls(
+                        messageId = message.id,
+                        url = url.toUri(),
+                        muted = message.payload.muted,
+                    )
+                }
+            }
+
+            is ExoPlayerStopMessage -> {
+                Timber.d("exoplayer/stop received")
+                FrontendHandlerEvent.ExoPlayerAction.Stop
+            }
+
+            is ExoPlayerResizeMessage -> {
+                Timber.d("exoplayer/resize received")
+                FrontendHandlerEvent.ExoPlayerAction.Resize(
+                    left = message.payload.left,
+                    top = message.payload.top,
+                    right = message.payload.right,
+                    bottom = message.payload.bottom,
+                )
+            }
+
             is HandleBlobMessage -> {
                 Timber.d("handleBlob called with filename=${message.filename}")
                 val result = downloadManager.handleBlob(data = message.data, filename = message.filename)
                 FrontendHandlerEvent.DownloadCompleted(result)
+            }
+
+            is BarcodeScanMessage -> {
+                Timber.d("Barcode scan request received with id: ${message.id}")
+                FrontendHandlerEvent.ShowBarcodeScanner(
+                    messageId = message.id ?: -1,
+                    title = message.payload.title,
+                    description = message.payload.description,
+                    alternativeOptionLabel = message.payload.alternativeOptionLabel,
+                )
+            }
+
+            is BarcodeNotifyMessage -> {
+                Timber.d("Barcode notify received")
+                FrontendHandlerEvent.NotifyBarcodeScanner(message.payload.message)
+            }
+
+            is BarcodeCloseMessage -> {
+                Timber.d("Barcode close received")
+                FrontendHandlerEvent.CloseBarcodeScanner
+            }
+
+            is ImprovScanMessage -> {
+                Timber.d("improv/scan received with id: ${message.id}")
+                FrontendHandlerEvent.StartImprovScan
+            }
+
+            is ImprovConfigureDeviceMessage -> {
+                Timber.d("improv/configure_device received with id: ${message.id}")
+                FrontendHandlerEvent.ConfigureImprovDevice(deviceName = message.payload.name)
+            }
+
+            is EntityAddToGetActionsMessage -> {
+                Timber.d("Entity add_to get_actions request received for: ${message.payload.entityId}")
+                val actions = entityAddToManager.getActionsForEntity(message.payload.entityId)
+                externalBusRepository.send(EntityAddToActionsResultMessage(id = message.id, actions = actions))
+                FrontendHandlerEvent.EntityAddToActionsSent
+            }
+
+            is EntityAddToMessage -> {
+                Timber.d("Entity add_to request received for: ${message.payload.entityId}")
+                val action = ExternalEntityAddToAction.appPayloadToAction(message.payload.appPayload)
+                val event = entityAddToManager.execute(message.payload.entityId, action)
+                FrontendHandlerEvent.EntityAddToExecuted(event)
+            }
+
+            is MatterCommissionMessage -> {
+                Timber.d("matter/commission received with id: ${message.id}")
+                FrontendHandlerEvent.StartMatterCommissioning
+            }
+
+            is ThreadImportCredentialsMessage -> {
+                Timber.d("thread/import_credentials received with id: ${message.id}")
+                FrontendHandlerEvent.ImportThreadCredentials
             }
 
             is UnknownIncomingMessage -> {
@@ -199,15 +317,14 @@ class FrontendMessageHandler @Inject constructor(
             0
         }
 
-        val response = ResultMessage.config(
+        val response = ConfigResultMessage(
             id = messageId,
-            config = ConfigResult.create(
-                hasNfc = hasNfc,
-                canCommissionMatter = canCommissionMatter,
-                canExportThread = canExportThread,
-                hasBarCodeScanner = hasBarCodeScanner,
-                appVersion = appVersionProvider(),
-            ),
+            hasNfc = hasNfc,
+            canCommissionMatter = canCommissionMatter,
+            canExportThread = canExportThread,
+            hasBarCodeScanner = hasBarCodeScanner,
+            canSetupImprov = bluetoothCapabilities.hasBluetoothLe(),
+            appVersion = appVersionProvider(),
         )
         externalBusRepository.send(response)
     }

@@ -1,16 +1,17 @@
 package io.homeassistant.companion.android.frontend.navigation
 
+import android.content.IntentSender
 import android.net.Uri
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import dagger.hilt.android.testing.HiltTestApplication
 import io.homeassistant.companion.android.HiltComponentActivity
+import io.homeassistant.companion.android.common.R as commonR
 import io.homeassistant.companion.android.settings.SettingsActivity
-import io.homeassistant.companion.android.testing.unit.ConsoleLogRule
+import io.homeassistant.companion.android.testing.unit.TestSharedFlow
+import io.mockk.mockk
 import junit.framework.TestCase.assertEquals
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
 import org.junit.jupiter.api.assertNull
@@ -24,19 +25,16 @@ import org.robolectric.annotation.Config
 class FrontendEventHandlerTest {
 
     @get:Rule(order = 0)
-    var consoleLog = ConsoleLogRule()
-
-    @get:Rule(order = 1)
     val hiltRule = HiltAndroidRule(this)
 
-    @get:Rule(order = 2)
+    @get:Rule(order = 1)
     val composeTestRule = createAndroidComposeRule<HiltComponentActivity>()
 
     @Test
-    fun `Given NavigateToSettings event then onNavigateToSettings is called`() = runTest {
+    fun `Given NavigateToSettings event then onNavigateToSettings is called`() {
         var settingsNavigated = false
         var deepLink: SettingsActivity.Deeplink? = null
-        val events = MutableSharedFlow<FrontendEvent>()
+        val events = TestSharedFlow<FrontendEvent>()
 
         composeTestRule.setContent {
             FrontendEventHandler(
@@ -48,6 +46,11 @@ class FrontendEventHandlerTest {
                 },
                 onNavigateToAssist = { _, _, _ -> },
                 onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
             )
         }
 
@@ -60,10 +63,10 @@ class FrontendEventHandlerTest {
     }
 
     @Test
-    fun `Given NavigateToAssistSettings event then onNavigateToSettings is called with deeplink`() = runTest {
+    fun `Given NavigateToAssistSettings event then onNavigateToSettings is called with deeplink`() {
         var settingsNavigated = false
         var deepLink: SettingsActivity.Deeplink? = null
-        val events = MutableSharedFlow<FrontendEvent>()
+        val events = TestSharedFlow<FrontendEvent>()
 
         composeTestRule.setContent {
             FrontendEventHandler(
@@ -75,6 +78,11 @@ class FrontendEventHandlerTest {
                 },
                 onNavigateToAssist = { _, _, _ -> },
                 onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
             )
         }
 
@@ -87,11 +95,11 @@ class FrontendEventHandlerTest {
     }
 
     @Test
-    fun `Given NavigateToAssist event then onNavigateToAssist is called with correct params`() = runTest {
+    fun `Given NavigateToAssist event then onNavigateToAssist is called with correct params`() {
         var capturedServerId: Int? = null
         var capturedPipelineId: String? = null
         var capturedStartListening: Boolean? = null
-        val events = MutableSharedFlow<FrontendEvent>()
+        val events = TestSharedFlow<FrontendEvent>()
 
         composeTestRule.setContent {
             FrontendEventHandler(
@@ -104,6 +112,11 @@ class FrontendEventHandlerTest {
                     capturedStartListening = startListening
                 },
                 onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
             )
         }
 
@@ -123,10 +136,10 @@ class FrontendEventHandlerTest {
     }
 
     @Test
-    fun `Given ShowSnackbar event then onShowSnackbar is called with resolved message`() = runTest {
+    fun `Given ShowSnackbar event then onShowSnackbar is called with resolved message`() {
         var capturedMessage: String? = null
         var capturedAction: String? = null
-        val events = MutableSharedFlow<FrontendEvent>()
+        val events = TestSharedFlow<FrontendEvent>()
 
         composeTestRule.setContent {
             FrontendEventHandler(
@@ -139,6 +152,11 @@ class FrontendEventHandlerTest {
                 onNavigateToSettings = {},
                 onNavigateToAssist = { _, _, _ -> },
                 onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
             )
         }
 
@@ -151,9 +169,158 @@ class FrontendEventHandlerTest {
     }
 
     @Test
-    fun `Given OpenExternalLink event then onOpenExternalLink is called with the URI`() = runTest {
+    fun `Given ShowSnackbar with format args then onShowSnackbar is called with the formatted message`() {
+        var capturedMessage: String? = null
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { message, _ ->
+                    capturedMessage = message
+                    false
+                },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(
+            FrontendEvent.ShowSnackbar(
+                messageResId = commonR.string.error_ssl_subresource_host,
+                formatArgs = listOf("analytics.example.com"),
+            ),
+        )
+        composeTestRule.waitForIdle()
+
+        assertEquals("Content from analytics.example.com could not be loaded securely.", capturedMessage)
+    }
+
+    @Test
+    fun `Given ShowSnackbar with action then onShowSnackbar receives the resolved action label`() {
+        var capturedMessage: String? = null
+        var capturedAction: String? = null
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { message, action ->
+                    capturedMessage = message
+                    capturedAction = action
+                    false
+                },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(
+            FrontendEvent.ShowSnackbar(
+                messageResId = android.R.string.ok,
+                action = FrontendEvent.ShowSnackbar.Action(
+                    labelResId = android.R.string.cancel,
+                    event = FrontendEvent.OpenExternalLink(Uri.parse("https://example.com/help")),
+                ),
+            ),
+        )
+        composeTestRule.waitForIdle()
+
+        assertEquals("OK", capturedMessage)
+        assertEquals("Cancel", capturedAction)
+    }
+
+    @Test
+    fun `Given ShowSnackbar with action when action is not tapped then the action event is not dispatched`() {
+        var openExternalLinkCalled = false
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                // Returning false models a snackbar that was dismissed without tapping the action.
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = { openExternalLinkCalled = true },
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(
+            FrontendEvent.ShowSnackbar(
+                messageResId = android.R.string.ok,
+                action = FrontendEvent.ShowSnackbar.Action(
+                    labelResId = android.R.string.cancel,
+                    event = FrontendEvent.OpenExternalLink(Uri.parse("https://example.com/help")),
+                ),
+            ),
+        )
+        composeTestRule.waitForIdle()
+
+        assertEquals(false, openExternalLinkCalled)
+    }
+
+    @Test
+    fun `Given ShowSnackbar with action when action is tapped then the action event is dispatched`() {
         var capturedUri: Uri? = null
-        val events = MutableSharedFlow<FrontendEvent>()
+        val helpUri = Uri.parse("https://example.com/help")
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                // Returning true models the user tapping the snackbar action.
+                onShowSnackbar = { _, _ -> true },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = { capturedUri = it },
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(
+            FrontendEvent.ShowSnackbar(
+                messageResId = android.R.string.ok,
+                action = FrontendEvent.ShowSnackbar.Action(
+                    labelResId = android.R.string.cancel,
+                    event = FrontendEvent.OpenExternalLink(helpUri),
+                ),
+            ),
+        )
+        composeTestRule.waitForIdle()
+
+        assertEquals(helpUri, capturedUri)
+    }
+
+    @Test
+    fun `Given OpenExternalLink event then onOpenExternalLink is called with the URI`() {
+        var capturedUri: Uri? = null
+        val events = TestSharedFlow<FrontendEvent>()
 
         composeTestRule.setContent {
             FrontendEventHandler(
@@ -162,6 +329,11 @@ class FrontendEventHandlerTest {
                 onNavigateToSettings = {},
                 onNavigateToAssist = { _, _, _ -> },
                 onOpenExternalLink = { uri -> capturedUri = uri },
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
             )
         }
 
@@ -171,5 +343,369 @@ class FrontendEventHandlerTest {
         composeTestRule.waitForIdle()
 
         assertEquals(testUri, capturedUri)
+    }
+
+    @Test
+    fun `Given LaunchApp event then onLaunchApp is called with the package name`() {
+        var capturedPackageName: String? = null
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onRequestFullscreen = {},
+                onLaunchMatterThreadIntent = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+                onLaunchApp = { packageName -> capturedPackageName = packageName },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.LaunchApp(packageName = "com.example.app"))
+        composeTestRule.waitForIdle()
+
+        assertEquals("com.example.app", capturedPackageName)
+    }
+
+    @Test
+    fun `Given LaunchIntent event then onLaunchIntent is called with the intent uri`() {
+        var capturedIntentUri: String? = null
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+                onLaunchIntent = { intentUri -> capturedIntentUri = intentUri },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.LaunchIntent(intentUri = "intent://scan#Intent;end"))
+        composeTestRule.waitForIdle()
+
+        assertEquals("intent://scan#Intent;end", capturedIntentUri)
+    }
+
+    @Test
+    fun `Given OpenSecuritySettings event then onOpenSecuritySettings is called`() {
+        var securitySettingsOpened = false
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+                onOpenSecuritySettings = { securitySettingsOpened = true },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.OpenSecuritySettings)
+        composeTestRule.waitForIdle()
+
+        assertEquals(true, securitySettingsOpened)
+    }
+
+    @Test
+    fun `Given UpdateWebView event then onUpdateWebView is called`() {
+        var webViewUpdated = false
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+                onUpdateWebView = { webViewUpdated = true },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.UpdateWebView)
+        composeTestRule.waitForIdle()
+
+        assertEquals(true, webViewUpdated)
+    }
+
+    @Test
+    fun `Given Relaunch event then onRelaunch is called`() {
+        var relaunched = false
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+                onRelaunch = { relaunched = true },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.Relaunch)
+        composeTestRule.waitForIdle()
+
+        assertEquals(true, relaunched)
+    }
+
+    @Test
+    fun `Given ShowServerSwitcher event then onShowServerSwitcher is called`() {
+        var serverSwitcherShown = false
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = { serverSwitcherShown = true },
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.ShowServerSwitcher)
+        composeTestRule.waitForIdle()
+
+        assertEquals(true, serverSwitcherShown)
+    }
+
+    @Test
+    fun `Given NavigateToDeveloperSettings event then onNavigateToSettings is called with Developer deeplink`() {
+        var settingsNavigated = false
+        var deepLink: SettingsActivity.Deeplink? = null
+        val navigationEvents = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = navigationEvents,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {
+                    settingsNavigated = true
+                    deepLink = it
+                },
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        navigationEvents.emit(FrontendEvent.NavigateToDeveloperSettings)
+        composeTestRule.waitForIdle()
+
+        assertEquals(true, settingsNavigated)
+        assertEquals(SettingsActivity.Deeplink.Developer, deepLink)
+    }
+
+    @Test
+    fun `Given NavigateToNfcWrite event then onNavigateToNfcWrite is called with messageId and tagId`() {
+        var capturedMessageId: Int? = null
+        var capturedTagId: String? = "not-captured"
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { messageId, tagId ->
+                    capturedMessageId = messageId
+                    capturedTagId = tagId
+                },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.NavigateToNfcWrite(messageId = 42, tagId = "tag-abc"))
+        composeTestRule.waitForIdle()
+
+        assertEquals(42, capturedMessageId)
+        assertEquals("tag-abc", capturedTagId)
+    }
+
+    @Test
+    fun `Given NavigateToNfcWrite event without tagId then onNavigateToNfcWrite is called with null tagId`() {
+        var capturedMessageId: Int? = null
+        var capturedTagId: String? = "not-captured"
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { messageId, tagId ->
+                    capturedMessageId = messageId
+                    capturedTagId = tagId
+                },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.NavigateToNfcWrite(messageId = 7, tagId = null))
+        composeTestRule.waitForIdle()
+
+        assertEquals(7, capturedMessageId)
+        assertEquals(null, capturedTagId)
+    }
+
+    @Test
+    fun `Given RequestFullscreen true event then onRequestFullscreen is called with true`() {
+        assertEquals(true, runRequestFullscreenTest(fullscreen = true))
+    }
+
+    @Test
+    fun `Given RequestFullscreen false event then onRequestFullscreen is called with false`() {
+        assertEquals(false, runRequestFullscreenTest(fullscreen = false))
+    }
+
+    @Test
+    fun `Given NavigateToWidgetConfig event then onNavigateToWidgetConfig is called with entityId and widgetType`() {
+        var capturedEntityId: String? = null
+        var capturedWidgetType: WidgetType? = null
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { entityId, widgetType ->
+                    capturedEntityId = entityId
+                    capturedWidgetType = widgetType
+                },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(
+            FrontendEvent.NavigateToWidgetConfig(
+                entityId = "light.kitchen",
+                widgetType = WidgetType.MediaPlayer,
+            ),
+        )
+        composeTestRule.waitForIdle()
+
+        assertEquals("light.kitchen", capturedEntityId)
+        assertEquals(WidgetType.MediaPlayer, capturedWidgetType)
+    }
+
+    @Test
+    fun `Given LaunchMatterThreadIntent event then onLaunchMatterThreadIntent is called with the intent sender`() {
+        var capturedIntentSender: IntentSender? = null
+        val intentSender = mockk<IntentSender>()
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = { capturedIntentSender = it },
+                onRequestFullscreen = {},
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.LaunchMatterThreadIntent(intentSender = intentSender))
+        composeTestRule.waitForIdle()
+
+        assertEquals(intentSender, capturedIntentSender)
+    }
+
+    private fun runRequestFullscreenTest(fullscreen: Boolean): Boolean? {
+        var captured: Boolean? = null
+        val events = TestSharedFlow<FrontendEvent>()
+
+        composeTestRule.setContent {
+            FrontendEventHandler(
+                events = events,
+                onShowSnackbar = { _, _ -> false },
+                onNavigateToSettings = {},
+                onNavigateToAssist = { _, _, _ -> },
+                onOpenExternalLink = {},
+                onShowServerSwitcher = {},
+                onNavigateToNfcWrite = { _, _ -> },
+                onLaunchMatterThreadIntent = {},
+                onRequestFullscreen = { captured = it },
+                onNavigateToWidgetConfig = { _, _ -> },
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        events.emit(FrontendEvent.RequestFullscreen(fullscreen = fullscreen))
+        composeTestRule.waitForIdle()
+
+        return captured
     }
 }

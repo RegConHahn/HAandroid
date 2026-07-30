@@ -10,7 +10,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -47,7 +47,6 @@ import io.homeassistant.companion.android.onboarding.sethomenetwork.navigation.n
 import io.homeassistant.companion.android.onboarding.welcome.navigation.WelcomeRoute
 import io.homeassistant.companion.android.settings.SettingsActivity
 import io.homeassistant.companion.android.settings.navigation.navigateToSettings
-import io.homeassistant.companion.android.testing.unit.ConsoleLogRule
 import io.homeassistant.companion.android.testing.unit.stringResource
 import io.homeassistant.companion.android.util.compose.webview.HA_WEBVIEW_TAG
 import io.mockk.coEvery
@@ -74,12 +73,9 @@ import org.robolectric.annotation.Config
 class HAAppTest {
 
     @get:Rule(order = 0)
-    var consoleLog = ConsoleLogRule()
-
-    @get:Rule(order = 1)
     val hiltRule = HiltAndroidRule(this)
 
-    @get:Rule(order = 2)
+    @get:Rule(order = 1)
     val composeTestRule = createAndroidComposeRule<HiltComponentActivity>()
 
     // Mock the ServerManager to prevent the real allowInsecureConnection() from executing.
