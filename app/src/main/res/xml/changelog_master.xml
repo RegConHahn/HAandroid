@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <changelog xmlns:tools="http://schemas.android.com/tools"
     tools:ignore="MissingDefaultResource">
-    <release version="2026.7.6 - Main" versioncode="3">
-        <change>Android 17: added assistant volume level sensor + notification command for control</change>
-        <change>Health Connect sleep duration sensor now ignores awake and out of bed time</change>
-        <change>Modernized settings for entity widgets and tiles</change>
+    <release version="2026.4.4 - Main" versioncode="3">
+        <change>Support external authentication providers in front of Home Assistant (Cloudflare Access, Authelia, Authentik, and other OIDC / OAuth 2.0 proxies) — the WebView now follows auth redirects instead of kicking out to the browser</change>
+        <change>Wake word detection no longer requires specific hardware</change>
+        <change>Expanded wake word support to continue conversations after using your wake word to open Assist</change>
+        <change>Assist conversations started with a wake word now auto-close after 30 seconds of inactivity</change>
+        <change>Add 8 additional Health Connect sensors</change>
         <change>Bug fixes and dependency updates</change>
     </release>
     <release version="2026.7.6 - Wear" versioncode="2">

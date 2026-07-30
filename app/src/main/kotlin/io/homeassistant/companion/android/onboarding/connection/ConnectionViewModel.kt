@@ -139,11 +139,13 @@ internal class ConnectionViewModel @VisibleForTesting constructor(
         currentUrlFlow = urlFlow,
         onFrontendError = ::onError,
         onUrlIntercepted = ::interceptRedirectIfRequired,
-        onPageFinished = { url ->
-            _isLoadingFlow.update { false }
-            updateEffectiveBaseUrl(url)
-        },
-    )
+        onPageFinished = { _isLoadingFlow.update { false } },
+    ).apply {
+        // Anchor the WebView client to the onboarding server so auth-provider
+        // navigation on third-party domains is kept inside the WebView instead
+        // of being forwarded to the system browser.
+        serverHost = rawUri.host
+    }
 
     /**
      * [WebChromeClient][android.webkit.WebChromeClient] used by the onboarding WebView.

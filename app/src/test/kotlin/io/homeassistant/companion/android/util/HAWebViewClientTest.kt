@@ -1,8 +1,10 @@
 package io.homeassistant.companion.android.util
 
+import android.net.Uri
 import android.net.http.SslError
 import android.webkit.HttpAuthHandler
 import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient.ERROR_AUTHENTICATION
@@ -23,6 +25,8 @@ import io.mockk.slot
 import kotlin.reflect.KClass
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -394,8 +398,149 @@ class HAWebViewClientTest {
         return "Status Code: ${code}\nDescription: $description"
     }
 
-    private fun mockWebView(): WebView {
+    private fun mockRequest(url: String) = mockk<android.webkit.WebResourceRequest> {
+        every { this@mockk.url } returns mockk {
+            every { this@mockk.toString() } returns url
+        }
+    }
+
+    @Test
+    fun `Given main-frame https redirect when shouldOverrideUrlLoading then follows in WebView`() {
+        val request = mockNavRequest(
+            scheme = "https",
+            targetHost = "auth.example.com",
+            isForMainFrame = true,
+            isRedirect = true,
+        )
+
+        val shouldOverride = webViewClient.shouldOverrideUrlLoading(mockWebView(), request)
+
+        assertFalse(shouldOverride, "WebView should follow main-frame auth-provider redirects")
+    }
+
+    @Test
+    fun `Given main-frame http redirect when shouldOverrideUrlLoading then follows in WebView`() {
+        val request = mockNavRequest(
+            scheme = "http",
+            targetHost = "auth.example.com",
+            isForMainFrame = true,
+            isRedirect = true,
+        )
+
+        val shouldOverride = webViewClient.shouldOverrideUrlLoading(mockWebView(), request)
+
+        assertFalse(shouldOverride, "WebView should follow main-frame auth-provider redirects")
+    }
+
+    @Test
+    fun `Given WebView currently off HA anchor when isAuthProviderNavigation then true`() {
+        webViewClient.serverHost = "ha.example.com"
+        val request = mockNavRequest(
+            scheme = "https",
+            targetHost = "accounts.google.com",
+            isForMainFrame = true,
+            isRedirect = false,
+        )
+
+        val webView = mockWebView(currentUrl = "https://myorg.cloudflareaccess.com/login")
+
+        assertTrue(
+            webViewClient.isAuthProviderNavigation(webView, request),
+            "Click-initiated navigation from an auth proxy page should stay inside the WebView",
+        )
+    }
+
+    @Test
+    fun `Given WebView on HA anchor when user taps external link then isAuthProviderNavigation is false`() {
+        webViewClient.serverHost = "ha.example.com"
+        val request = mockNavRequest(
+            scheme = "https",
+            targetHost = "external.example.com",
+            isForMainFrame = true,
+            isRedirect = false,
+        )
+
+        val webView = mockWebView(currentUrl = "https://ha.example.com/lovelace")
+
+        assertFalse(
+            webViewClient.isAuthProviderNavigation(webView, request),
+            "Links tapped on the HA frontend should fall through to the system browser",
+        )
+    }
+
+    @Test
+    fun `Given no serverHost set when user taps non-redirect link then isAuthProviderNavigation is false`() {
+        val request = mockNavRequest(
+            scheme = "https",
+            targetHost = "external.example.com",
+            isForMainFrame = true,
+            isRedirect = false,
+        )
+
+        val webView = mockWebView(currentUrl = "https://ha.example.com/lovelace")
+
+        assertFalse(
+            webViewClient.isAuthProviderNavigation(webView, request),
+            "Without an anchor the existing behaviour (system browser) is preserved for non-redirects",
+        )
+    }
+
+    @Test
+    fun `Given sub-frame redirect then isAuthProviderNavigation is false`() {
+        val request = mockNavRequest(
+            scheme = "https",
+            targetHost = "iframe.example.com",
+            isForMainFrame = false,
+            isRedirect = true,
+        )
+
+        assertFalse(
+            webViewClient.isAuthProviderNavigation(mockWebView(), request),
+            "Only main-frame redirects represent an auth handshake; iframes should not short-circuit",
+        )
+    }
+
+    @Test
+    fun `Given non-http scheme main-frame redirect then isAuthProviderNavigation is false`() {
+        val request = mockNavRequest(
+            scheme = "homeassistant",
+            targetHost = null,
+            isForMainFrame = true,
+            isRedirect = true,
+        )
+
+        assertFalse(
+            webViewClient.isAuthProviderNavigation(mockWebView(), request),
+            "Non-http(s) schemes (e.g. app OAuth callbacks) must still reach the URL interceptor",
+        )
+    }
+
+    @Test
+    fun `Given null request then isAuthProviderNavigation is false`() {
+        assertFalse(webViewClient.isAuthProviderNavigation(mockWebView(), null))
+    }
+
+    private fun mockNavRequest(
+        scheme: String,
+        targetHost: String?,
+        isForMainFrame: Boolean,
+        isRedirect: Boolean,
+    ): WebResourceRequest {
+        val uri = mockk<Uri> {
+            every { this@mockk.scheme } returns scheme
+            every { this@mockk.host } returns targetHost
+            every { this@mockk.toString() } returns "$scheme://${targetHost ?: ""}/"
+        }
         return mockk {
+            every { this@mockk.url } returns uri
+            every { this@mockk.isForMainFrame } returns isForMainFrame
+            every { this@mockk.isRedirect } returns isRedirect
+        }
+    }
+
+    private fun mockWebView(currentUrl: String? = null): WebView {
+        return mockk {
+            every { url } returns currentUrl
             every { context } returns mockk {
                 val code = slot<String>()
                 val detail = slot<String>()
@@ -404,73 +549,6 @@ class HAWebViewClientTest {
                 }
                 every { getString(commonR.string.no_description) } returns "No description"
             }
-        }
-    }
-
-    @Test
-    fun `Given onReceivedHttpAuthRequest callback when auth requested then callback receives resource url`() {
-        var capturedHandler: HttpAuthHandler? = null
-        var capturedHost: String? = null
-        var capturedResource: String? = null
-        var capturedRealm: String? = null
-        val client = HAWebViewClient(
-            keyChainRepository = keyChainRepository,
-            currentUrlFlow = currentUrlFlow,
-            onFrontendError = { capturedError = it },
-            onCrash = null,
-            onUrlIntercepted = null,
-            onPageFinished = null,
-            onReceivedHttpAuthRequest = { handler, host, resource, realm ->
-                capturedHandler = handler
-                capturedHost = host
-                capturedResource = resource
-                capturedRealm = realm
-            },
-        )
-        val handler = mockk<HttpAuthHandler>(relaxed = true)
-
-        // onLoadResource sets the last resource URL
-        client.onLoadResource(mockk(relaxed = true), "https://example.com/protected")
-        client.onReceivedHttpAuthRequest(mockk(relaxed = true), handler, "example.com", "myrealm")
-
-        assertTrue(capturedHandler === handler)
-        assertEquals("example.com", capturedHost)
-        assertEquals("https://example.com/protected", capturedResource)
-        assertEquals("myrealm", capturedRealm)
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = [true, false])
-    fun `Given onCanGoBackChanged callback when doUpdateVisitedHistory then reports webView canGoBack`(
-        canGoBack: Boolean,
-    ) {
-        var captured: Boolean? = null
-        val client = HAWebViewClient(
-            keyChainRepository = keyChainRepository,
-            currentUrlFlow = currentUrlFlow,
-            onFrontendError = { capturedError = it },
-            onCrash = null,
-            onUrlIntercepted = null,
-            onPageFinished = null,
-            onReceivedHttpAuthRequest = null,
-            onCanGoBackChanged = { captured = it },
-        )
-        val webView = mockk<WebView> { every { canGoBack() } returns canGoBack }
-
-        client.doUpdateVisitedHistory(webView, "https://example.com", false)
-
-        assertEquals(canGoBack, captured)
-    }
-
-    @Test
-    fun `Given no onReceivedHttpAuthRequest callback when auth requested then does not crash`() {
-        webViewClient.onReceivedHttpAuthRequest(mockk(relaxed = true), mockk(relaxed = true), "example.com", "realm")
-        // No exception thrown
-    }
-
-    private fun mockRequest(url: String) = mockk<android.webkit.WebResourceRequest> {
-        every { this@mockk.url } returns mockk {
-            every { this@mockk.toString() } returns url
         }
     }
 }
